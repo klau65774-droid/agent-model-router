@@ -10,6 +10,23 @@
 
 ## 快速开始
 
+### 一键安装（推荐）
+
+```bash
+git clone https://github.com/klau65774-droid/agent-model-router.git
+cd agent-model-router
+
+# Linux / macOS / Windows Git Bash
+bash install.sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+安装脚本会：检查 Node ≥ 18 → 注册 MCP 到 **Kimi Code**（`~/.kimi-code/mcp.json`，自动备份原配置）→ 注册到 **Claude Code**（检测到 `claude` CLI 时）→ 安装 Claude Code 技能（`~/.claude/skills/model-router`）。
+
+### 手动使用 CLI
+
 ```bash
 # 决策（文本输出）
 node router.mjs decide "帮我重构这个 Python 爬虫，加断点续传"
