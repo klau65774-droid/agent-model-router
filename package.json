@@ -1,0 +1,17 @@
+{
+  "name": "agent-model-router",
+  "version": "1.0.0",
+  "description": "提示词路由引擎：分析任务画像 → 推荐模型 + 思考强度。CLI / MCP / Claude Code Hook 三形态嵌入各类编码 Agent。",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "bin": {
+    "agent-model-router": "router.mjs",
+    "amr": "router.mjs"
+  },
+  "scripts": {
+    "decide": "node router.mjs decide",
+    "mcp": "node mcp-server.mjs",
+    "policy": "node router.mjs policy"
+  },
+  "license": "MIT"
+}
