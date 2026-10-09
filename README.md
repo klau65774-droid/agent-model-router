@@ -6,7 +6,7 @@
 [![MCP Server](https://img.shields.io/badge/MCP-stdio-blueviolet)](mcp-server.mjs)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](install.sh)
 
-**English** · A zero-dependency prompt routing engine that embeds into coding agents (Kimi Code, Claude Code, Codex, Cursor and any MCP client). Give it a prompt — it returns a **task profile (typed questions with calibrated confidence), a recommended model, a recommended thinking effort, and ready-to-use API params**. Ships as a **CLI**, an **MCP stdio server**, and a **Claude Code UserPromptSubmit hook**. Inspired by TypeSafe Jev routing practice: confidence-gated escalation (uncertainty → route heavier), fail-open, and shadow mode for calibration. Built-in model libraries: Kimi (K3 / K2.8 Preview / K2.7 Code / K2.6) and Claude (Opus 4.6 / Sonnet 4.6 / Haiku 4.5). One-click installers for Windows, macOS and Linux.
+**[English README](README_EN.md)** · A zero-dependency prompt routing engine that embeds into coding agents (Kimi Code, Claude Code, Codex, Cursor and any MCP client). Give it a prompt — it returns a **task profile (typed questions with calibrated confidence), a recommended model, a recommended thinking effort, and ready-to-use API params**. Ships as a **CLI**, an **MCP stdio server**, and a **Claude Code UserPromptSubmit hook**. Inspired by TypeSafe Jev routing practice: confidence-gated escalation (uncertainty → route heavier), fail-open, and shadow mode for calibration. Built-in model libraries: Kimi (K3 / K2.8 Preview / K2.7 Code / K2.6) and Claude (Opus 4.6 / Sonnet 4.6 / Haiku 4.5). One-click installers for Windows, macOS and Linux.
 
 ---
 
