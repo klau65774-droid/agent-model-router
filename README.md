@@ -17,6 +17,7 @@
 - 三种嵌入形态：**CLI** / **MCP server** / **Claude Code Hook**
 - 内置两套模型库：`kimi`（K3 / K2.8 Preview / K2.7 Code / K2.6）与 `claude`（Opus 4.6 / Sonnet 4.6 / Haiku 4.5）
 - 策略仿 TypeSafe Jev：类型化问题 + 校准置信度 + 门控上移 + 失败放行 + 影子模式
+- 端到端实测报告：[docs/integration-test.md](docs/integration-test.md)（CLI / MCP / Hook / Kimi Code 全通过）
 
 ## 快速开始
 
