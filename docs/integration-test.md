@@ -49,7 +49,7 @@ $ node router.mjs decide "帮我重构这个 Python 爬虫，加断点续传"
 
 ## ③ Kimi Code 集成（通过）
 
-用户级配置 `~/.kimi-code/mcp.json`（Windows：`C:\Users\35195\.kimi-code\mcp.json`）：
+用户级配置 `~/.kimi-code/mcp.json`（Windows：`C:\Users\<username>\.kimi-code\mcp.json`）：
 
 ```json
 {
@@ -57,7 +57,7 @@ $ node router.mjs decide "帮我重构这个 Python 爬虫，加断点续传"
     "agent-model-router": {
       "transport": "stdio",
       "command": "node",
-      "args": ["D:/树莓派/树莓派/agent-model-router/mcp-server.mjs"]
+      "args": ["<path-to-repo>/agent-model-router/mcp-server.mjs"]
     }
   }
 }

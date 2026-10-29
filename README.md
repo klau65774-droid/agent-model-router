@@ -73,7 +73,7 @@ node router.mjs decide "..." --shadow
         "hooks": [
           {
             "type": "command",
-            "command": "node D:/树莓派/树莓派/agent-model-router/router.mjs hook --profile kimi"
+            "command": "node <path-to-repo>/agent-model-router/router.mjs hook --profile kimi"
           }
         ]
       }
@@ -95,7 +95,7 @@ node router.mjs decide "..." --shadow
   "mcpServers": {
     "agent-model-router": {
       "command": "node",
-      "args": ["D:/树莓派/树莓派/agent-model-router/mcp-server.mjs"]
+      "args": ["<path-to-repo>/agent-model-router/mcp-server.mjs"]
     }
   }
 }
@@ -105,7 +105,7 @@ node router.mjs decide "..." --shadow
 
 ```bash
 # Windows
-xcopy /E /I "D:\树莓派\树莓派\agent-model-router\skills\model-router" "%USERPROFILE%\.claude\skills\model-router"
+xcopy /E /I "<path-to-repo>\agent-model-router\skills\model-router" "%USERPROFILE%\.claude\skills\model-router"
 # macOS / Linux
 cp -r ./skills/model-router ~/.claude/skills/
 ```
@@ -120,7 +120,7 @@ cp -r ./skills/model-router ~/.claude/skills/
     "agent-model-router": {
       "transport": "stdio",
       "command": "node",
-      "args": ["D:/树莓派/树莓派/agent-model-router/mcp-server.mjs"]
+      "args": ["<path-to-repo>/agent-model-router/mcp-server.mjs"]
     }
   }
 }
@@ -150,7 +150,7 @@ Codex 在 `~/.codex/config.toml`：
 ```toml
 [mcp_servers.agent-model-router]
 command = "node"
-args = ["D:/树莓派/树莓派/agent-model-router/mcp-server.mjs"]
+args = ["<path-to-repo>/agent-model-router/mcp-server.mjs"]
 ```
 
 不支持 MCP 的环境，直接用 CLI + `AGENTS.md` 引导即可（Agent 通过 Bash 调用）。
