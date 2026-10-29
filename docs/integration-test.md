@@ -49,7 +49,7 @@ $ node router.mjs decide "帮我重构这个 Python 爬虫，加断点续传"
 
 ## ③ Kimi Code 集成（通过）
 
-用户级配置 `~/.kimi-code/mcp.json`（Windows：`C:\\Users\\<username>\\.kimi-code\\mcp.json`）：
+用户级配置 `~/.kimi-code/mcp.json`（Windows：`C:\Users\<username>\.kimi-code\mcp.json`）：
 
 ```json
 {
