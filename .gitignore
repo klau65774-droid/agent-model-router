@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+feedback.jsonl
 .DS_Store
 Thumbs.db
 /tmp/

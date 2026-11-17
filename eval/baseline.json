@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 2,
+  "baseCommit": "947db29b2b2c2197dc689661f44bb78ad086c1a8",
+  "sourceSha256": "b87618ed3e322002fde7ba55a702cbc83b9bf22e738ed510406595098e0f9bf1",
+  "fixtureSha256": "5531dde2ba232248647402122de964b10829dea8c68cebda04cb6597b3c0cfd3",
+  "catalogs": {
+    "kimi": [
+      {
+        "id": "kimi-k3",
+        "modalities": {
+          "image": true,
+          "video": true
+        },
+        "contextK": 1024,
+        "priceIn": 3,
+        "priceOut": 15
+      },
+      {
+        "id": "kimi-k2.8-preview",
+        "modalities": {
+          "image": true,
+          "video": true
+        },
+        "contextK": 1024,
+        "priceIn": 1,
+        "priceOut": 4
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "modalities": {
+          "image": true,
+          "video": true
+        },
+        "contextK": 256,
+        "priceIn": 0.95,
+        "priceOut": 4
+      },
+      {
+        "id": "kimi-k2.7-code-highspeed",
+        "modalities": {
+          "image": true,
+          "video": true
+        },
+        "contextK": 256,
+        "priceIn": 1.9,
+        "priceOut": 8
+      },
+      {
+        "id": "kimi-k2.6",
+        "modalities": {
+          "image": true,
+          "video": false
+        },
+        "contextK": 256,
+        "priceIn": 0.95,
+        "priceOut": 4
+      }
+    ],
+    "claude": [
+      {
+        "id": "claude-opus-4.6",
+        "modalities": {
+          "image": true,
+          "video": false
+        },
+        "contextK": 1000,
+        "priceIn": 5,
+        "priceOut": 25
+      },
+      {
+        "id": "claude-sonnet-4.6",
+        "modalities": {
+          "image": true,
+          "video": false
+        },
+        "contextK": 1000,
+        "priceIn": 3,
+        "priceOut": 15
+      },
+      {
+        "id": "claude-haiku-4.5",
+        "modalities": {
+          "image": true,
+          "video": false
+        },
+        "contextK": 200,
+        "priceIn": 1,
+        "priceOut": 5
+      }
+    ]
+  },
+  "rows": [
+    {"id":"receipt-parser-1","type":"translate","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"receipt-parser-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"release-notes-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"release-notes-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"release-notes-3","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"code-review-1","type":"code","model":"claude-haiku-4.5","tier":"lite","effort":"high","hold":false},
+    {"id":"code-review-2","type":"code","model":"claude-haiku-4.5","tier":"lite","effort":"high","hold":false},
+    {"id":"production-migration-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"production-migration-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"euclid-lemma-1","type":"reasoning","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"euclid-lemma-2","type":"reasoning","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"conditional-probability-1","type":"reasoning","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"conditional-probability-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"sponsor-message-1","type":"writing","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"sponsor-message-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"translation-snippet-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"translation-snippet-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"translate-manual-line-1","type":"code","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":true},
+    {"id":"translate-manual-line-2","type":"translate","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"structured-ids-1","type":"extract","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"structured-ids-2","type":"extract","model":"kimi-k2.8-preview","tier":"pro","effort":"low","hold":false},
+    {"id":"report-comparison-1","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"report-comparison-2","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"medical-zh-en-1","type":"translate","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"medical-zh-en-2","type":"translate","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"medical-zh-en-3","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"parking-photo-1","type":"multimodal","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"parking-photo-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"ocr-serial-1","type":"multimodal","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"ocr-serial-2","type":"multimodal","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"video-claude-1","type":"multimodal","model":null,"tier":null,"effort":null,"hold":false},
+    {"id":"video-claude-2","type":"multimodal","model":null,"tier":null,"effort":null,"hold":false},
+    {"id":"video-audio-1","type":"multimodal","model":null,"tier":null,"effort":null,"hold":false},
+    {"id":"video-audio-2","type":"multimodal","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":false},
+    {"id":"tool-fs-1","type":"agentic","model":"fixture-text","tier":"lite","effort":"high","hold":false},
+    {"id":"tool-fs-2","type":"agentic","model":"fixture-text","tier":"lite","effort":"high","hold":false},
+    {"id":"budget-with-catalog-1","type":"translate","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"budget-with-catalog-2","type":"translate","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"budget-impossible-1","type":"extract","model":"claude-haiku-4.5","tier":"lite","effort":"low","hold":false},
+    {"id":"budget-impossible-2","type":"knowledge","model":"claude-opus-4.6","tier":"flagship","effort":"high","hold":true},
+    {"id":"long-copy-1","type":"knowledge","model":"claude-opus-4.6","tier":"flagship","effort":"high","hold":true},
+    {"id":"long-copy-2","type":"extract","model":"claude-haiku-4.5","tier":"lite","effort":"low","hold":false},
+    {"id":"structured-goal-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"structured-goal-2","type":"multimodal","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":false},
+    {"id":"ambiguous-request-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"ambiguous-request-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"workflow-goal-1","type":"agentic","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"workflow-goal-2","type":"agentic","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"workflow-goal-3","type":"agentic","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"mock-interview-1","type":"chat","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"mock-interview-2","type":"chat","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"api-explanation-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"api-explanation-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"no-media-1","type":"multimodal","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":true},
+    {"id":"no-media-2","type":"multimodal","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":false},
+    {"id":"policy-audit-1","type":"analysis","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"policy-audit-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"no-work-schedule-1","type":"agentic","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"no-work-schedule-2","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"quick-arithmetic-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"quick-arithmetic-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"live-query-1","type":"knowledge","model":"fixture-web","tier":"pro","effort":"high","hold":true},
+    {"id":"live-query-2","type":"knowledge","model":"fixture-web","tier":"pro","effort":"high","hold":true},
+    {"id":"ledger-rounding-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"ledger-rounding-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"public-copy-vs-ship-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"public-copy-vs-ship-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"public-copy-vs-ship-3","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"graph-proof-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"graph-proof-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"newsletter-transcreation-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"newsletter-transcreation-2","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"equipment-table-1","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"equipment-table-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"insurance-topic-1","type":"knowledge","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"insurance-topic-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"safety-assessment-1","type":"knowledge","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"safety-assessment-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"audio-input-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"audio-input-2","type":"knowledge","model":null,"tier":null,"effort":null,"hold":true},
+    {"id":"picture-no-reading-1","type":"multimodal","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"picture-no-reading-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"diagram-input-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"diagram-input-2","type":"multimodal","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"impossible-long-input-1","type":"knowledge","model":"fixture-web","tier":"pro","effort":"high","hold":true},
+    {"id":"impossible-long-input-2","type":"knowledge","model":"fixture-web","tier":"pro","effort":"high","hold":true},
+    {"id":"combined-requirements-1","type":"agentic","model":"fixture-text","tier":"lite","effort":"high","hold":false},
+    {"id":"combined-requirements-2","type":"agentic","model":"fixture-scans-b","tier":"pro","effort":"high","hold":true},
+    {"id":"consumer-chat-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"consumer-chat-2","type":"chat","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"comparison-with-clauses-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"comparison-with-clauses-2","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"low","hold":false},
+    {"id":"goal-change-1","type":"analysis","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"goal-change-2","type":"reasoning","model":"kimi-k3","tier":"flagship","effort":"max","hold":true},
+    {"id":"not-a-verb-1","type":"knowledge","model":"kimi-k2.6","tier":"pro","effort":"high","hold":true},
+    {"id":"not-a-verb-2","type":"multimodal","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":true},
+    {"id":"paragraph-no-instruction-1","type":"code","model":"kimi-k2.6","tier":"pro","effort":"high","hold":false},
+    {"id":"paragraph-no-instruction-2","type":"translate","model":"kimi-k2.8-preview","tier":"pro","effort":"high","hold":true}
+  ]
+}

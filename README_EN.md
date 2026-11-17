@@ -7,7 +7,7 @@ A zero-dependency prompt routing engine that embeds into coding agents (Kimi Cod
 - Zero dependencies: runs on Node ≥ 18, no `npm install`, no network required
 - Three embedding forms: **CLI** / **MCP server** / **Claude Code Hook**
 - Built-in model libraries: `kimi` (K3 / K2.8 Preview / K2.7 Code / K2.6) and `claude` (Opus 4.6 / Sonnet 4.6 / Haiku 4.5)
-- Strategy inspired by TypeSafe Jev routing practice: typed questions + calibrated confidence + confidence-gated escalation + fail-open + shadow mode
+- Separate task type, complexity, requirement ambiguity and failure impact. Supports structured input, hard constraints, local feedback and reproducible offline replay.
 
 ## Quick Start
 
@@ -45,8 +45,8 @@ echo "Prove that sqrt(2) is irrational" | node router.mjs decide
 node router.mjs models --profile kimi
 node router.mjs policy
 
-# Shadow mode: only log to ~/.agent-model-router/log.jsonl, no suggestions (for calibration)
-node router.mjs decide "..." --shadow
+# Shadow mode: write a local event and print its route ID
+node router.mjs decide "Extract the reference number" --shadow
 ```
 
 ## Embedding into Claude Code (three ways, can be combined)
@@ -73,7 +73,7 @@ Add to `~/.claude/settings.json`:
 ```
 
 Effect: on every message you send, Claude Code receives an injected line such as
-`[model-router] task=code(89%) complexity=64 → recommended Kimi K2.7 Code, thinking effort HIGH…`
+`[model-router] 任务=code（未校准） 复杂度=42/100 → 推荐模型 …，思考建议 HIGH`
 and Claude can advise switching model/tier accordingly. If the hook fails it outputs `{}` and **never blocks the conversation** (fail-open).
 
 ### ② MCP server (the agent actively calls the `route_prompt` tool)
@@ -146,13 +146,19 @@ args = ["/absolute/path/to/agent-model-router/mcp-server.mjs"]
 
 For environments without MCP support, use the CLI directly plus `AGENTS.md` guidance (the agent invokes it via Bash).
 
-## Output contract (route_prompt / decide --json)
+## Structured inputs and output contract
+
+Use `--context task.json` with the CLI, or include `context` in a `route_prompt` or Hook payload. In the context, `goal` defines the request separately from any material supplied as `prompt`. An explicit `taskType` takes precedence over the inferred category. The context can also declare `inputTypes`, `requiredTools`, `inputTokens`, `expectedOutputTokens`, `failureImpact` and `budget.maxEstimatedUsd`. A budget requires an output token estimate. See the full [context and output contract](README.md#结构化上下文).
 
 ```jsonc
 {
-  "profile": {           // task profile (all with confidence)
-    "taskType":  { "value": "code", "confidence": 0.89 },
-    "complexity": { "value": 64 },
+  "policyVersion": "rules-v2.0.0",
+  "routeId": null,
+  "profile": {
+    "taskType":  { "value": "code", "confidence": 0.88, "confidenceKind": "heuristic", "calibration": "uncalibrated" },
+    "complexity": { "value": 42 },
+    "ambiguity": { "value": "low", "reasons": [], "missingFields": [] },
+    "failureImpact": { "value": "low" },
     "effort":    { "value": "high" },   // recommended thinking effort low/high/max
     "hold": false, "holdReasons": []     // confidence gate
   },
@@ -160,30 +166,40 @@ For environments without MCP support, use the CLI directly plus `AGENTS.md` guid
     "model": "kimi-k2.7-code",
     "effort": "high",
     "apiParams": {},                     // ready-to-use call params
-    "thinkingNote": "This model always thinks; the tier is not adjustable"
+    "scoreKind": "heuristic",
+    "successProbability": { "value": null, "status": "uncalibrated" }
   },
-  "ranking": [ /* all candidates + scores + reasons + risks */ ]
+  "ranking": [ /* eligible candidates, ordered by policy priority */ ],
+  "policy": { /* HOLD reasons and actual changes in policy.gate */ }
 }
 ```
 
 ## Custom model library
 
-`router.config.json` (passed via `--config`) can switch the default library or replace models entirely:
+`router.config.json` can switch the default library or replace models entirely. Pass it via `--config` to the CLI, Hook or MCP server.
 
 ```json
 {
   "profile": "kimi",
   "preset": "balanced",
-  "models": [ { "id": "my-model", "name": "...", "tier": "pro", "caps": { "reasoning": 9, "coding": 9, "chinese": 9, "writing": 9, "agentic": 9 }, "modalities": { "image": true, "video": false }, "contextK": 256, "priceIn": 1, "priceOut": 4, "speedTps": 80, "openWeights": false, "thinking": "effort" } ]
+  "models": [ { "id": "my-model", "name": "...", "tier": "pro", "caps": { "reasoning": 9, "coding": 9, "chinese": 9, "writing": 9, "agentic": 9 }, "modalities": { "image": true, "video": false }, "tools": ["web"], "contextK": 256, "priceIn": 1, "priceOut": 4, "speedTps": 80, "openWeights": false, "thinking": "effort" } ]
 }
 ```
 
-## Design principles (consistent with Jev routing practice)
+## Local feedback and evaluation
 
-1. **Escalate when uncertain**: confidence < 0.6 or top two task scores too close → HOLD, recommend one tier up, thinking effort low→high. Misrouting to a weaker model costs quality; misrouting to a stronger one only costs tokens.
-2. **Fail-open**: any exception in the routing tool never blocks the agent's main flow.
-3. **Shadow before enable**: `--shadow` logs only, without intervening; the logs are the basis for calibrating thresholds.
-4. **Tier fixed within a session**: switching tiers breaks prefix caching.
+HOLD prioritizes eligible higher tiers when requirements are unclear or failures could be consequential. The `policy.gate` output reports which model and effort were actually selected, along with changes in API parameters.
+
+Logging is opt-in. Use CLI `--record` or MCP `record: true` to get a `routeId`. Attach outcome evidence with the CLI `feedback` command or MCP `record_feedback`. The JSONL log stores route metadata, separate preference and outcome fields, and metric provenance. See the [feedback format](docs/feedback.md).
+
+```bash
+npm test
+node eval/replay.mjs --split tuning
+node eval/replay.mjs --check --out replay-result.md
+node eval/replay.mjs --check --feedback ~/.agent-model-router/feedback.jsonl
+```
+
+The [evaluation report](docs/evaluation.md) compares the new policy with a pinned pre-upgrade baseline. The dataset uses synthetic tasks for regression checks. Execution success, costs and latency require recorded outcomes.
 
 ## License
 
