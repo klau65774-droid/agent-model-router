@@ -1,7 +1,20 @@
 node_modules/
 dist/
 *.log
-feedback.jsonl
 .DS_Store
 Thumbs.db
 /tmp/
+
+# Local configuration, feedback and execution records
+.env
+.env.*
+!.env.example
+.mcp.json
+router.config.json
+task.json
+feedback.jsonl
+feedback-request.json
+attempts.jsonl
+paired-requests.json
+execution-report.md
+replay-result.md
