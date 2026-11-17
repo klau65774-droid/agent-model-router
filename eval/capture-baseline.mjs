@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -22,7 +22,8 @@ const source = (routerPath
 if (digest(source) !== BASE_SOURCE_SHA256) throw new Error('Baseline source does not match the pinned commit')
 
 const { cases, checksum } = loadCases()
-const tempDir = mkdtempSync(join(tmpdir(), 'amr-baseline-'))
+// The pinned CLI compares argv[1] directly with its resolved module path.
+const tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'amr-baseline-')))
 const tempRouter = join(tempDir, 'router.mjs')
 try {
   writeFileSync(tempRouter, source)
