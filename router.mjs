@@ -1,18 +1,12 @@
 #!/usr/bin/env node
-// ─────────────────────────────────────────────────────────────────
-// agent-model-router · 提示词路由引擎（零依赖 Node >= 18）
-// 架构致敬 TypeSafe Jev：typed questions → calibrated confidence
-//   → policy mapping（不确定 → 上移一档；失败放行 fail-open）
-// 用法：
-//   node router.mjs decide "<提示词>" [--profile kimi|claude] [--preset quality|balanced|budget|speed] [--json]
-//   echo "<提示词>" | node router.mjs decide            # 管道输入
-//   node router.mjs hook                                # Claude Code UserPromptSubmit 钩子（stdin/stdout JSON）
-//   node router.mjs models [--profile kimi|claude]      # 列出模型库
-//   node router.mjs policy                              # 打印路由策略
-// ─────────────────────────────────────────────────────────────────
-import { readFileSync, appendFileSync, mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { readFileSync, realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { isObject } from './lib/context.mjs'
+import { analyze } from './lib/task-profile.mjs'
+import { recordFeedback, recordRoute } from './lib/feedback.mjs'
+
+export { analyze }
+export const POLICY_VERSION = 'rules-v2.0.0'
 
 // ─── 模型库（快照 2026-10，可用 --config 覆盖/扩展） ──────────────
 const MODEL_PROFILES = {
@@ -99,418 +93,348 @@ const TASK_NEED_WEIGHTS = {
   knowledge: { reasoning: 0.35, coding: 0.05, chinese: 0.25, writing: 0.25, agentic: 0.1 },
 }
 
-const KW = {
-  code: ['代码', '编程', '函数', '报错', 'bug', '调试', '重构', '脚本', '接口', 'api', '算法实现',
-    'python', 'java', 'javascript', 'typescript', 'c++', 'rust', 'sql', '编译', '堆栈', '异常',
-    'exception', 'error', 'code', 'function', 'debug', 'refactor', 'implement', 'commit', '单元测试', '正则', 'docker', '部署',
-    'review', 'fix', 'patch', 'pull request', 'merge', 'code review', '漏洞', 'security'],
-  agentic: ['智能体', 'agent', '工具调用', 'tool', '工作流', 'workflow', '自动化', '自动执行', '定时',
-    '爬取', '监控', 'mcp', '插件', '多步骤任务', '自主', '浏览器操作', 'function calling', 'pipeline'],
-  reasoning: ['证明', '推导', '数学', '方程', '概率', '逻辑', '推理', '谜题', '奥数', '定理',
-    '博弈', '最优化', '论证', 'math', 'prove', 'logic', 'puzzle', '竞赛'],
-  writing: ['写一篇', '文案', '作文', '文章', '公众号', '小红书', '演讲稿', '剧本', '小说', '诗',
-    '广告语', '标题', '品牌', '故事', '散文', '软文', 'write', 'essay', 'copywriting', 'story', '创作'],
-  translate: ['翻译', '译成', '译为', '中译英', '英译中', '日文', '韩文', 'translate', 'translation',
-    '字幕', '本地化', '改写', 'paraphrase'],
-  analysis: ['分析', '总结这篇', '研报', '财报', '论文', '文献', '文档', '报告', '趋势', '对比',
-    '调研', '综述', '解读', 'pdf', 'analyze', 'analysis', 'summarize', 'report', '要点提取', '审计'],
-  extract: ['抽取', '提取信息', '结构化', 'json', 'xml', '表单', '字段', '实体识别', '分类打标',
-    '标注', '解析成', '转成表格', 'extract', 'parse', 'schema', '结构化输出', '关键信息'],
-  multimodal: ['图片', '图像', '照片', '截图', '图表', '视频', '音频', '语音', '识别图中', '看图',
-    'ocr', 'image', 'picture', 'video', 'audio', '这张图', '海报', '多模态'],
-  chat: ['扮演', '角色', '人设', '客服', '聊天', '对话', '陪聊', '语气', '口吻', 'roleplay',
-    'chatbot', '模拟面试', '陪练', '陪伴'],
-  knowledge: ['什么是', '为什么', '怎么理解', '教我', '讲解', '科普', '入门', '学习', '概念', '原理',
-    'what is', 'how to', 'explain', '考试', '备考', '知识点'],
-}
-
-const REALTIME_KW = ['最新', '实时', '今天', '昨天', '本周', '股价', '汇率', '新闻', '天气', '热搜', 'latest', 'today', 'news', 'current']
-const HIGH_STAKES_KW = ['合同', '法律', '医疗', '诊断', '处方', '投资建议', '风控', '生产环境', '上线', '金融', '合规', '诉讼']
-const MULTI_STEP_KW = ['首先', '然后', '接着', '最后', '第一步', '第二步', '步骤', '阶段', '并且', '同时要求', '另外']
-const CONSTRAINT_KW = ['必须', '不能', '禁止', '约束', '限制', '至少', '最多', '不超过', '只允许', '要求']
-const LOW_EFFORT_TASKS = ['translate', 'chat', 'extract', 'knowledge']
-
-// ─── 特征提取 ────────────────────────────────────────────────────
-function estimateTokens(text) {
-  let zh = 0, other = 0
-  for (const ch of text) {
-    if (/[一-鿿　-〿＀-￯]/.test(ch)) zh++; else other++
-  }
-  return Math.round(zh * 0.75 + (other / 4) * 1.3 + text.split(/\s+/).length * 0.2)
-}
-
-function cjkRatio(text) {
-  let zh = 0
-  for (const ch of text) if (/[一-鿿]/.test(ch)) zh++
-  return text.length ? zh / text.length : 0
-}
-
-function countHits(text, kws) {
-  const lower = text.toLowerCase()
-  const matched = []
-  let hits = 0
-  for (const k of kws) {
-    if (lower.includes(k.toLowerCase())) {
-      hits++
-      if (matched.length < 5) matched.push(k)
-    }
-  }
-  return { hits, matched }
-}
-
-function calibrate(topScore, secondScore, hits) {
-  if (hits === 0) return 0.35
-  const margin = secondScore > 0 ? (topScore - secondScore) / topScore : 1
-  const strength = Math.min(1, hits / 4)
-  return Math.round((0.45 + 0.35 * margin + 0.17 * strength) * 100) / 100
-}
-
-function scoreTaskTypes(text) {
-  const results = Object.keys(KW).map((type) => {
-    const { hits, matched } = countHits(text, KW[type])
-    let score = 0
-    for (const m of matched) score += m.length >= 4 ? 2 : 1
-    return { type, score, hits, matched }
-  })
-  if (/```/.test(text)) results.find((r) => r.type === 'code').score += 3
-  if (/\{\s*"/.test(text)) results.find((r) => r.type === 'extract').score += 2
-  if (/[一-鿿]/.test(text) && /(译|翻译)/.test(text)) results.find((r) => r.type === 'translate').score += 3
-  return results.sort((a, b) => b.score - a.score)
-}
-
-function scoreComplexity(text, estTokens) {
-  let score = 12
-  const ev = []
-  if (estTokens > 3000) { score += 30; ev.push(`输入约 ${estTokens} tok，信息量大`) }
-  else if (estTokens > 800) { score += 20; ev.push(`输入约 ${estTokens} tok，中等篇幅`) }
-  else if (estTokens > 200) { score += 10 } else ev.push('输入简短')
-  const steps = countHits(text, MULTI_STEP_KW).hits
-  if (steps >= 3) { score += 20; ev.push(`${steps} 处多步骤标记`) } else if (steps >= 1) { score += 10; ev.push('含步骤化描述') }
-  const constraints = countHits(text, CONSTRAINT_KW).hits
-  if (constraints >= 3) { score += 18; ev.push(`${constraints} 条显式约束`) } else if (constraints >= 1) score += 8
-  if (/```/.test(text)) { score += 12; ev.push('含代码块') }
-  if (/\d+%|\d+\.\d+|公式|方程/.test(text)) { score += 8; ev.push('含数值/公式') }
-  if (countHits(text, ['随便', '看着办', '大概', '都可以', '无所谓']).hits > 0) { score -= 10; ev.push('需求表述较模糊') }
-  return { value: Math.max(5, Math.min(98, score)), evidence: ev }
-}
-
-// ─── 思考强度推荐（Kimi 官方指引映射） ───────────────────────────
-function recommendEffort(taskType, complexity, stakes) {
-  if (stakes === 'high') return { value: 'max', confidence: 0.92, evidence: ['高利害场景，推理强度拉满'] }
-  if (complexity >= 70) return { value: 'max', confidence: 0.9, evidence: [`复杂度 ${complexity}/100 ≥ 70`] }
-  if (taskType === 'reasoning' && complexity >= 50) return { value: 'max', confidence: 0.88, evidence: ['推理类任务且复杂度中高'] }
-  if (complexity < 35 && LOW_EFFORT_TASKS.includes(taskType))
-    return { value: 'low', confidence: 0.85, evidence: [`复杂度 ${complexity}/100 较低的机械型任务`] }
-  return { value: 'high', confidence: 0.85, evidence: [`复杂度 ${complexity}/100，日常开发/分析区间`] }
-}
-
-// ─── 画像分析（typed questions + confidence） ────────────────────
-export function analyze(prompt) {
-  const text = String(prompt || '').trim()
-  const estTokens = estimateTokens(text)
-  const ranked = scoreTaskTypes(text)
-  const top = ranked[0], second = ranked[1]
-  const taskType = top.score > 0 ? top.type : 'knowledge'
-  const typeConf = top.score > 0 ? calibrate(top.score, second.score, top.hits) : 0.35
-  const cx = scoreComplexity(text, estTokens)
-  const needsLong = estTokens > 20000 || /整篇|全文|整个文档|整本书|所有文件/.test(text)
-  let modality = 'none'
-  if (countHits(text, ['视频', 'video', '影片']).hits > 0) modality = 'video'
-  else if (countHits(text, ['音频', '语音', '录音', 'audio']).hits > 0) modality = 'audio'
-  else if (countHits(text, KW.multimodal).hits > 0 || /!\[|\.(png|jpg|jpeg|webp|gif)/i.test(text)) modality = 'image'
-  const needsRealtime = countHits(text, REALTIME_KW).hits > 0
-  const stakes = countHits(text, HIGH_STAKES_KW).hits > 0 ? 'high' : cx.value >= 60 ? 'medium' : 'low'
-  let effort = recommendEffort(taskType, cx.value, stakes)
-  // 证明 / 严格推导类推理题直接 max（官方指引：数学证明留给 max 档）
-  if (taskType === 'reasoning' && effort.value !== 'max' && /证明|prove|严格|定理|推导|证法/.test(text)) {
-    effort = { value: 'max', confidence: 0.86, evidence: ['推理证明类任务，按官方指引用 max 档'] }
-  }
-
-  const holdReasons = []
-  if (typeConf < 0.6) holdReasons.push(`任务类型置信度 ${(typeConf * 100).toFixed(0)}% < 60%`)
-  if (top.score > 0 && second.score > 0 && top.score - second.score <= 1) holdReasons.push(`前两类任务得分接近（${top.type}/${second.type}）`)
-  if (stakes === 'high') holdReasons.push('高利害场景')
-  if (text.length < 12) holdReasons.push('提示词过短')
-  const hold = holdReasons.length > 0
-  if (hold && effort.value === 'low') {
-    effort = { value: 'high', confidence: Math.max(0.7, effort.confidence - 0.1), evidence: [...effort.evidence, '门控触发：low → high'] }
-  }
-
-  return {
-    taskType: { value: taskType, confidence: typeConf, evidence: top.matched.length ? [`命中：${top.matched.join('、')}`] : ['未命中关键词'] },
-    taskTypeAlt: second.score > 0 ? { value: second.type, confidence: calibrate(second.score, top.score, second.hits) } : null,
-    complexity: { value: cx.value, evidence: cx.evidence },
-    estTokensIn: estTokens,
-    chineseRatio: Math.round(cjkRatio(text) * 100) / 100,
-    needsLongContext: needsLong,
-    modality,
-    needsRealtime,
-    stakes,
-    effort,
-    hold,
-    holdReasons,
-  }
-}
-
-// ─── 模型匹配 ────────────────────────────────────────────────────
 const PRESET_WEIGHTS = {
   quality: { q: 0.7, c: 0.2, s: 0.1 },
   balanced: { q: 0.5, c: 0.3, s: 0.2 },
   budget: { q: 0.3, c: 0.55, s: 0.15 },
   speed: { q: 0.35, c: 0.15, s: 0.5 },
 }
+const TIER_LEVEL = new Map([['lite', 0], ['pro', 1], ['flagship', 2]])
 
 export function apiParamsFor(model, effort) {
   if (model.thinking === 'effort') return { reasoning_effort: effort }
-  if (model.thinking === 'binary')
+  if (model.thinking === 'binary') {
     return effort === 'low' ? { thinking: { type: 'disabled' } } : { thinking: { type: 'enabled', keep: 'all' } }
-  return {} // always：始终思考，无需传参
+  }
+  return {}
+}
+
+function estimatedCost(model, { inputTokens, expectedOutputTokens }) {
+  if (expectedOutputTokens == null || !Number.isFinite(model.priceIn) || model.priceIn < 0 ||
+      !Number.isFinite(model.priceOut) || model.priceOut < 0) return null
+  const cost = (inputTokens * model.priceIn + expectedOutputTokens * model.priceOut) / 1_000_000
+  return Number.isFinite(cost) ? cost : null
+}
+
+function checkModel(model, requirements, cost) {
+  const reasons = []
+  for (const modality of requirements.modalities) {
+    if (model.modalities?.[modality] !== true) reasons.push(`不支持 ${modality} 输入`)
+  }
+  if (requirements.contextTokens > 0 && (!Number.isFinite(model.contextK) || model.contextK * 1000 < requirements.contextTokens)) {
+    reasons.push(`上下文窗口不足，需要 ${requirements.contextTokens} token`)
+  }
+  const missingTools = requirements.tools.filter(tool => !Array.isArray(model.tools) || !model.tools.includes(tool))
+  if (missingTools.length) reasons.push(`未声明工具能力：${missingTools.join('、')}`)
+  if (requirements.maxEstimatedUsd !== null) {
+    if (cost === null) {
+      reasons.push(requirements.expectedOutputTokens === null ? '缺少预计输出 token，无法验证预算' : '缺少有效报价，无法验证预算')
+    } else if (cost > requirements.maxEstimatedUsd) {
+      reasons.push(`预计费用 $ ${cost} 超出预算 $ ${requirements.maxEstimatedUsd}`)
+    }
+  }
+  return reasons
 }
 
 export function rank(profile, models, preset = 'balanced') {
-  const need = TASK_NEED_WEIGHTS[profile.taskType.value] ?? TASK_NEED_WEIGHTS.knowledge
-  const wBase = PRESET_WEIGHTS[preset] ?? PRESET_WEIGHTS.balanced
-  // max 档任务（证明/复杂重构/高利害）质量权重抬到 0.7，不被省钱/速度稀释
-  const w = profile.effort.value === 'max' && wBase.q < 0.7 ? PRESET_WEIGHTS.quality : wBase
+  const need = Object.hasOwn(TASK_NEED_WEIGHTS, profile.taskType.value)
+    ? TASK_NEED_WEIGHTS[profile.taskType.value] : TASK_NEED_WEIGHTS.knowledge
+  const weights = Object.hasOwn(PRESET_WEIGHTS, preset) ? PRESET_WEIGHTS[preset] : PRESET_WEIGHTS.balanced
+  const w = profile.effort.value === 'max' ? PRESET_WEIGHTS.quality : weights
   const complexityBoost = profile.complexity.value / 100
+  const requirements = profile.requirements ?? {
+    modalities: profile.modality && profile.modality !== 'none' ? [profile.modality] : [],
+    tools: [], inputTokens: profile.estTokensIn,
+    contextTokens: profile.needsLongContext ? Math.ceil(profile.estTokensIn * 1.6) : 0,
+    expectedOutputTokens: null, maxEstimatedUsd: null,
+  }
   const filteredOut = []
   const candidates = []
-  for (const m of models) {
-    if (profile.modality !== 'none' && !m.modalities[profile.modality]) {
-      filteredOut.push({ id: m.id, why: `不支持${profile.modality}输入` }); continue
-    }
-    const needCtxK = Math.ceil((profile.estTokensIn * 1.6) / 1000)
-    if (profile.needsLongContext && m.contextK < needCtxK) {
-      filteredOut.push({ id: m.id, why: `上下文 ${m.contextK}K < 所需 ${needCtxK}K` }); continue
-    }
-    candidates.push(m)
+  for (const model of models) {
+    const cost = estimatedCost(model, requirements)
+    const reasons = checkModel(model, requirements, cost)
+    if (reasons.length) filteredOut.push({ id: model.id, why: reasons.join('；'), reasons })
+    else candidates.push({ model, cost })
   }
-  const maxPrice = Math.max(...candidates.map((m) => m.priceOut), 1)
-  const maxTps = Math.max(...candidates.map((m) => m.speedTps), 1)
+  const maxPrice = Math.max(...candidates.map(({ model }) => model.priceOut ?? 0), 1)
+  const maxTps = Math.max(...candidates.map(({ model }) => model.speedTps ?? 0), 1)
 
-  const results = candidates.map((m) => {
+  const results = candidates.map(({ model: m, cost }) => {
     let q = 0
     const contributions = []
     for (const [dim, weight] of Object.entries(need)) {
       if (weight <= 0) continue
-      q += weight * m.caps[dim]
-      contributions.push({ dim, v: weight * m.caps[dim] })
+      const cap = m.caps?.[dim] ?? 0
+      q += weight * cap
+      contributions.push({ dim, cap, v: weight * cap })
     }
     if (m.tier === 'flagship') q += complexityBoost * 0.4
     if (m.tier === 'lite') q -= complexityBoost * 0.5
-    if (profile.chineseRatio > 0.5) q += (m.caps.chinese - 8.5) * 0.06
+    if (profile.chineseRatio > 0.5) q += ((m.caps?.chinese ?? 0) - 8.5) * 0.06
     const quality = Math.max(0, Math.min(10, q)) * 10
     const blended = m.priceIn * 0.75 + m.priceOut * 0.25
-    const costScore = Math.max(2, 100 - (Math.log10(blended + 0.05) + 1.3) / (Math.log10(maxPrice + 0.05) + 1.3) * 100)
-    const speedScore = (m.speedTps / maxTps) * 100
+    const costScore = Number.isFinite(blended) && blended >= 0
+      ? Math.max(2, 100 - (Math.log10(blended + 0.05) + 1.3) / (Math.log10(maxPrice + 0.05) + 1.3) * 100) : 2
+    const speedScore = ((m.speedTps ?? 0) / maxTps) * 100
     let total = w.q * quality + w.c * costScore + w.s * speedScore
-    if (profile.hold && m.tier === 'lite') total -= 18
-    if (profile.hold && m.tier === 'flagship') total += 6
     if (m.thinking === 'always' && profile.effort.value === 'low') total -= 4
-    // 高速变体：同模型 2 倍价格，仅速度优先时划算
     const highspeedPenalty = /highspeed/i.test(m.id) && preset !== 'speed'
     if (highspeedPenalty) total -= 5
 
     contributions.sort((a, b) => b.v - a.v)
-    const reasons = contributions.slice(0, 2).filter((c) => c.v > 0.5)
-      .map((c) => `${c.dim} ${m.caps[c.dim].toFixed(1)}`)
+    const reasons = contributions.slice(0, 2).filter(c => c.v > 0.5).map(c => `${c.dim} ${c.cap.toFixed(1)}`)
     if (m.thinking === 'effort') reasons.push(`可按推荐档 reasoning_effort=${profile.effort.value}`)
-    if (m.thinking === 'binary' && profile.effort.value === 'low') reasons.push('思考可关，简单任务最省')
+    if (m.thinking === 'binary' && profile.effort.value === 'low') reasons.push('简单任务可关闭思考')
     const risks = []
-    if (m.thinking === 'always' && profile.effort.value === 'low') risks.push('始终思考，简单任务也付推理 token')
-    if (highspeedPenalty) risks.push('速度溢价 2×：仅「速度优先」或长输出场景划算')
+    if (m.thinking === 'always' && profile.effort.value === 'low') risks.push('始终思考，简单任务也可能产生推理 token')
+    if (highspeedPenalty) risks.push('速度溢价：适合速度优先或长输出')
     if (m.speedTps < 45) risks.push('输出偏慢')
-    if (profile.stakes === 'high' && m.tier !== 'flagship') risks.push('高利害建议旗舰复核')
+    if (profile.stakes === 'high' && m.tier !== 'flagship') risks.push('高失败影响，建议人工复核')
 
     return {
       id: m.id, name: m.name, tier: m.tier,
-      total: Math.round(total * 10) / 10,
+      total: Math.round(total * 10) / 10, scoreKind: 'heuristic', calibration: 'uncalibrated',
       quality: Math.round(quality), costScore: Math.round(costScore), speedScore: Math.round(speedScore),
-      thinking: m.thinking,
-      apiParams: apiParamsFor(m, profile.effort.value),
+      estimatedCostUsd: { value: cost, kind: cost === null ? 'missing' : 'estimated' },
+      thinking: m.thinking, apiParams: apiParamsFor(m, profile.effort.value),
       reasons, risks, note: m.note,
     }
   })
   return { ranking: results.sort((a, b) => b.total - a.total), filteredOut }
 }
 
-export function decide(prompt, { profile = 'kimi', preset = 'balanced', models = null } = {}) {
-  const p = analyze(prompt)
-  const modelList = models ?? MODEL_PROFILES[profile] ?? MODEL_PROFILES.kimi
-  const { ranking, filteredOut } = rank(p, modelList, preset)
-  const top = ranking[0] ?? null
+function selected(candidate, effort) {
+  return candidate ? { model: candidate.id, tier: candidate.tier, effort, apiParams: candidate.apiParams } : null
+}
+
+function applyHold(p, candidates, before) {
+  const preferredTier = p.hold ? (p.stakes === 'high' ? 'flagship' : 'pro') : null
+  const preferred = preferredTier === null ? [] : candidates.filter(m => TIER_LEVEL.get(m.tier) >= TIER_LEVEL.get(preferredTier))
+  const ranking = preferred.length && preferred[0] !== candidates[0]
+    ? [...preferred, ...candidates.filter(candidate => !preferred.includes(candidate))]
+    : candidates
+  const after = selected(ranking[0], p.effort.value)
+  const compared = before !== null && after !== null
+  const tierRaised = compared && TIER_LEVEL.get(after.tier) > TIER_LEVEL.get(before.tier)
+  const effortRaised = compared && p.effort.beforeHold !== p.effort.value
+  const apiParamsChanged = compared && JSON.stringify(before.apiParams) !== JSON.stringify(after.apiParams)
+  const changes = []
+  if (tierRaised) changes.push(`模型档位 ${before.tier} → ${after.tier}`)
+  if (effortRaised) changes.push(`思考建议 ${before.effort} → ${after.effort}`)
+  if (compared && before.model !== after.model && !tierRaised) changes.push(`首选模型 ${before.model} → ${after.model}`)
+  if (p.hold && after && !preferred.length) changes.push(`没有满足硬约束的 ${preferredTier} 档候选`)
+  const explanation = !p.hold ? '' : !after ? '硬约束筛选后没有可推荐模型'
+    : changes.length ? changes.join('；') : `门控前后的首选均为 ${after.model} / ${after.effort}`
+  return {
+    ranking,
+    gate: { triggered: p.hold, preferredTier, before, after, tierRaised, effortRaised, apiParamsChanged, explanation },
+  }
+}
+
+export function modelsFor(profile = 'kimi') {
+  return Object.hasOwn(MODEL_PROFILES, profile) ? MODEL_PROFILES[profile] : MODEL_PROFILES.kimi
+}
+
+export function decide(prompt, { profile = 'kimi', preset = 'balanced', models = null, context } = {}) {
+  const p = analyze(prompt, context)
+  const modelList = models ?? modelsFor(profile)
+  if (!Array.isArray(modelList)) throw new TypeError('models must be an array')
+  const ranked = rank(p, modelList, preset)
+  const before = p.effort.beforeHold === p.effort.value ? ranked.ranking[0] : rank({
+    ...p, effort: { ...p.effort, value: p.effort.beforeHold },
+  }, modelList, preset).ranking[0]
+  const { ranking, gate } = applyHold(p, ranked.ranking, selected(before, p.effort.beforeHold))
+  const top = ranking[0]
+  const incomplete = p.requirements.maxEstimatedUsd !== null && p.requirements.expectedOutputTokens === null
   return {
     profile: p,
     preset,
     modelProfile: profile,
-    recommendation: top
-      ? {
-          model: top.id,
-          modelName: top.name,
-          score: top.total,
-          effort: p.effort.value,
-          apiParams: top.apiParams,
-          thinkingNote:
-            top.thinking === 'always' ? '该模型始终思考，档位不可调' :
-            top.thinking === 'binary' ? '思考为开关式，按 apiParams 设置' :
-            '三档可调，同会话固定档位保前缀缓存',
-        }
-      : null,
+    policyVersion: POLICY_VERSION,
+    routeId: null,
+    recommendation: top ? {
+      model: top.id,
+      modelName: top.name,
+      score: top.total, scoreKind: top.scoreKind, calibration: top.calibration,
+      effort: p.effort.value,
+      apiParams: top.apiParams,
+      thinkingNote: top.thinking === 'always' ? '该模型始终思考，档位不可调'
+        : top.thinking === 'binary' ? '思考为开关式，按 apiParams 设置'
+          : '按 apiParams 设置思考档位',
+      successProbability: { value: null, status: 'uncalibrated', reason: '缺少与任务及模型匹配的标注执行结果' },
+    } : null,
     ranking,
-    filteredOut,
+    filteredOut: ranked.filteredOut,
     policy: {
       hold: p.hold,
       holdReasons: p.holdReasons,
-      rule: '置信度门控：不确定 → 推荐上移一档（fail-open：本工具任何异常都不应阻断主流程）',
+      rule: '先检查硬约束，HOLD 按可用档位优先，记录首选与思考建议的实际变化。',
+      gate,
+      constraints: { status: incomplete ? 'incomplete' : top ? 'satisfied' : 'no_eligible_models' },
     },
   }
 }
 
-// ─── 人类可读输出 ────────────────────────────────────────────────
+function holdText(report) {
+  return report.policy.hold
+    ? `HOLD：${report.policy.holdReasons.join('；')}。${report.policy.gate.explanation}`
+    : ''
+}
+
 function formatReport(r) {
   const p = r.profile
-  const lines = []
-  lines.push(`任务画像：${p.taskType.value}（置信度 ${(p.taskType.confidence * 100).toFixed(0)}%）` +
-    (p.taskTypeAlt ? `，备选 ${p.taskTypeAlt.value}` : ''))
-  lines.push(`复杂度：${p.complexity.value}/100 ｜ 输入 ≈${p.estTokensIn} tok ｜ 利害：${p.stakes} ｜ 模态：${p.modality}`)
-  lines.push(`推荐思考强度：${p.effort.value.toUpperCase()}（${p.effort.evidence.join('；')}）`)
-  if (p.hold) lines.push(`⚠ 置信度门控触发：${p.holdReasons.join('；')} → 推荐已上移一档`)
-  lines.push('')
+  const lines = [
+    `任务画像：${p.taskType.value}（分类依据 ${p.taskType.confidenceKind}，未校准分值 ${p.taskType.confidence}）`,
+    `复杂度：${p.complexity.value}/100 ｜ 需求不明确程度：${p.ambiguity.value} ｜ 失败影响：${p.stakes} ｜ 输入 ${p.estTokensIn} tok（${p.requirements.inputTokensKind}）｜ 模态：${p.modalities.join('、') || 'none'}`,
+    `推荐思考建议：${p.effort.value.toUpperCase()}（${p.effort.evidence.join('；')}）`,
+  ]
+  if (p.ambiguity.reasons.length) lines.push(`需补充：${p.ambiguity.missingFields.join('、')}。${p.ambiguity.reasons.join('；')}`)
+  if (r.policy.hold) lines.push(holdText(r))
   if (r.recommendation) {
     const rec = r.recommendation
-    lines.push(`★ 首选：${rec.modelName}（综合分 ${rec.score}）`)
-    lines.push(`  调用参数：${JSON.stringify(rec.apiParams)}  ${rec.thinkingNote}`)
-    lines.push('')
-    lines.push('候选排行：')
+    lines.push('', `★ 首选：${rec.modelName}（启发式综合分 ${rec.score}）`)
+    lines.push(`  调用参数：${JSON.stringify(rec.apiParams)}  ${rec.thinkingNote}`, '', '候选排行：')
     for (const [i, m] of r.ranking.entries()) {
       lines.push(`  ${i + 1}. ${m.name}  总分 ${m.total}（契合 ${m.quality} / 省钱 ${m.costScore} / 速度 ${m.speedScore}）`)
       if (m.reasons.length) lines.push(`     ✓ ${m.reasons.join('；')}`)
       if (m.risks.length) lines.push(`     ! ${m.risks.join('；')}`)
     }
   } else {
-    lines.push('! 所有候选均被硬过滤排除')
+    lines.push('! 没有满足硬约束的候选')
   }
-  if (r.filteredOut.length) lines.push(`已过滤：${r.filteredOut.map((f) => `${f.id}（${f.why}）`).join('、')}`)
+  if (r.filteredOut.length) lines.push(`已过滤：${r.filteredOut.map(f => `${f.id}（${f.why}）`).join('、')}`)
+  if (r.routeId) lines.push(`routeId：${r.routeId}`)
+  if (r.recording?.status === 'failed') lines.push(r.recording.reason)
   return lines.join('\n')
 }
 
-// ─── 影子日志（校准用） ──────────────────────────────────────────
-function shadowLog(entry) {
-  try {
-    const dir = join(homedir(), '.agent-model-router')
-    mkdirSync(dir, { recursive: true })
-    appendFileSync(join(dir, 'log.jsonl'), JSON.stringify({ ts: Date.now(), ...entry }) + '\n')
-  } catch { /* fail-open */ }
-}
-
-// ─── CLI ─────────────────────────────────────────────────────────
 function parseArgs(argv) {
   const args = { _: [] }
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a.startsWith('--')) {
-      const key = a.slice(2)
-      if (['json', 'shadow'].includes(key)) args[key] = true
-      else args[key] = argv[++i]
-    } else args._.push(a)
+    const arg = argv[i]
+    if (arg === '--') {
+      args._.push(...argv.slice(i + 1))
+      break
+    }
+    if (!arg.startsWith('--')) {
+      args._.push(arg)
+      continue
+    }
+    const key = arg.slice(2)
+    if (['json', 'shadow', 'record'].includes(key)) args[key] = true
+    else if (['profile', 'preset', 'config', 'context', 'log'].includes(key)) {
+      if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new TypeError(`Missing value for --${key}`)
+      args[key] = argv[++i]
+    } else throw new TypeError(`Unknown option --${key}`)
   }
   return args
 }
 
 async function readStdin() {
   const chunks = []
-  for await (const c of process.stdin) chunks.push(c)
-  return Buffer.concat(chunks).toString('utf8')
+  for await (const chunk of process.stdin) chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf8').replace(/^\ufeff/u, '')
 }
 
-function loadConfig(args) {
-  if (!args.config) return {}
+function readJsonFile(path, name) {
   try {
-    return JSON.parse(readFileSync(args.config, 'utf8'))
+    return JSON.parse(readFileSync(path, 'utf8').replace(/^\ufeff/u, ''))
   } catch {
-    return {}
+    throw new TypeError(`Unable to read valid JSON from ${name}`)
   }
 }
 
-// 写完 stdout 再显式退出：某些运行时（Electron as Node / Windows 管道）
-// 在 stdin 未关闭时事件循环不会自然排空
+export function readConfig(path) {
+  const config = path ? readJsonFile(path, '--config') : {}
+  if (!isObject(config)) throw new TypeError('--config must contain a JSON object')
+  return config
+}
+
 function writeExit(str, code = 0) {
   process.stdout.write(str.endsWith('\n') || str === '' ? str : str + '\n', () => process.exit(code))
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
-  const cmd = args._[0] ?? 'decide'
-  const cfg = loadConfig(args)
-  const profileName = args.profile ?? cfg.profile ?? 'kimi'
-  const preset = args.preset ?? cfg.preset ?? 'balanced'
-  const models = cfg.models ?? null
-
-  if (cmd === 'models') {
-    writeExit(JSON.stringify(models ?? MODEL_PROFILES[profileName] ?? [], null, 2))
-    return
-  }
-  if (cmd === 'policy') {
-    writeExit([
-      '路由策略（仿 Jev）：',
-      '  1. 每条提示词回答类型化问题：任务类型(Choice) / 复杂度(Score) / 模态·长上下文·利害(Noul)',
-      '  2. 置信度 < 0.6 或前两类接近 → HOLD：推荐上移一档，思考强度 low→high',
-      '  3. 失败放行（fail-open）：本工具异常绝不阻断 Agent 主流程',
-      '  4. 影子模式（--shadow）：只记录不输出建议，日志用于校准门限',
-      '  5. 思考档位同会话固定，切档破坏前缀缓存',
-    ].join('\n'))
-    return
-  }
-
-  if (cmd === 'hook') {
-    // Claude Code UserPromptSubmit 钩子：stdin 收 {"prompt": "..."}，stdout 回 additionalContext
-    let input = ''
-    try { input = await readStdin() } catch { /* fail-open */ }
-    try {
-      const payload = JSON.parse(input || '{}')
-      const prompt = payload.prompt ?? payload.message ?? ''
-      if (!prompt || String(prompt).trim().length < 8) {
-        writeExit('{}')
-        return
-      }
-      const r = decide(prompt, { profile: profileName, preset, models })
-      shadowLog({ mode: 'hook', prompt: String(prompt).slice(0, 500), recommendation: r.recommendation?.model, hold: r.profile.hold })
-      if (args.shadow) { writeExit('{}'); return }
-      const rec = r.recommendation
-      if (!rec) { writeExit('{}'); return }
-      const ctx =
-        `[model-router] 任务=${r.profile.taskType.value}(${(r.profile.taskType.confidence * 100).toFixed(0)}%) ` +
-        `复杂度=${r.profile.complexity.value}/100 → 推荐模型 ${rec.modelName}` +
-        (r.profile.effort ? `，思考强度 ${r.profile.effort.value.toUpperCase()}` : '') +
-        `（调用参数 ${JSON.stringify(rec.apiParams)}）` +
-        (r.profile.hold ? `。门控触发：${r.profile.holdReasons.join('；')}，已上移一档` : '') +
-        '。若当前模型/档位与推荐不符，请告知用户或按既定机制切换；此建议仅供参考，不阻断任务。'
-      writeExit(JSON.stringify({
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx },
-      }))
-    } catch {
-      writeExit('{}') // fail-open
-    }
-    return
-  }
-
-  // decide
-  let prompt = args._.slice(1).join(' ')
-  if (!prompt && !process.stdin.isTTY) prompt = (await readStdin()).trim()
-  if (!prompt) {
-    console.error('用法: node router.mjs decide "<提示词>" [--profile kimi|claude] [--preset balanced] [--json] [--shadow]')
-    process.exit(1)
-  }
-  const r = decide(prompt, { profile: profileName, preset, models })
-  if (args.shadow) {
-    shadowLog({ mode: 'shadow', prompt: prompt.slice(0, 500), recommendation: r.recommendation?.model, effort: r.profile.effort.value, hold: r.profile.hold })
-    writeExit(`[shadow] 已记录到 ~/.agent-model-router/log.jsonl（不输出建议）`)
-    return
-  }
-  writeExit(args.json ? JSON.stringify(r, null, 2) : formatReport(r))
+function maybeRecord(report, args, entrypoint) {
+  if (!args.shadow && !args.record) return report
+  return recordRoute(report, { mode: args.shadow ? 'shadow' : 'recommendation', entrypoint, logPath: args.log })
 }
 
-// 仅作为脚本直接执行时才运行 CLI；被 mcp-server import 时只导出函数
-import { fileURLToPath } from 'node:url'
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]
-if (isMain) main().catch(() => process.exit(0)) // fail-open：任何异常静默退出
+async function runHook(args, options) {
+  const payload = JSON.parse(await readStdin() || '{}')
+  const prompt = payload.prompt ?? payload.message ?? ''
+  const context = Object.hasOwn(payload, 'context') ? payload.context : options.context
+  // Preserve the legacy short-message filter for prompt-only hook events.
+  if (String(prompt).trim().length < 8 && context === undefined) return writeExit('{}')
+  if (!String(prompt).trim() && !context?.goal && !context?.taskType) return writeExit('{}')
+  const r = maybeRecord(decide(prompt, { ...options, context }), args, 'hook')
+  if (args.shadow || !r.recommendation) return writeExit('{}')
+  const rec = r.recommendation
+  const detail = `[model-router] 任务=${r.profile.taskType.value}（未校准） 复杂度=${r.profile.complexity.value}/100` +
+    ` → 推荐模型 ${rec.modelName}，思考建议 ${rec.effort.toUpperCase()}（调用参数 ${JSON.stringify(rec.apiParams)}）。` +
+    (r.policy.hold ? holdText(r) + '。' : '') + (r.routeId ? `routeId=${r.routeId}。` : '')
+  writeExit(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: detail + '此建议仅供参考。' },
+  }))
+}
+
+async function main() {
+  const argv = process.argv.slice(2)
+  let cmd = argv[0]
+  try {
+    const args = parseArgs(argv)
+    cmd = args._.shift() ?? 'decide'
+    if (cmd === 'feedback') {
+      let feedback
+      try {
+        feedback = args._[0] ? readJsonFile(args._[0], 'feedback file') : JSON.parse(await readStdin())
+      } catch {
+        throw new TypeError('Unable to read valid feedback JSON')
+      }
+      return writeExit(JSON.stringify(recordFeedback(feedback, args.log), null, 2))
+    }
+
+    const config = readConfig(args.config)
+    const profile = args.profile ?? config.profile ?? 'kimi'
+    const preset = args.preset ?? config.preset ?? 'balanced'
+    const models = config.models ?? null
+    if (cmd === 'models') {
+      const list = models ?? (Object.hasOwn(MODEL_PROFILES, profile) ? modelsFor(profile) : [])
+      return writeExit(JSON.stringify(list, null, 2))
+    }
+    if (cmd === 'policy') {
+      return writeExit([
+        `路由策略 ${POLICY_VERSION}`,
+        '1. 分别识别任务类型、复杂度、需求不明确程度和失败影响。',
+        '2. 先检查模态、工具、上下文窗口与估算预算。',
+        '3. HOLD 优先可用的适当档位，输出实际改动与备选限制。',
+        '4. --shadow 记录影子建议；--record 生成可用于反馈的 routeId。',
+      ].join('\n'))
+    }
+
+    const context = args.context ? readJsonFile(args.context, '--context') : undefined
+    const options = { profile, preset, models, context }
+    if (cmd === 'hook') return await runHook(args, options)
+    if (cmd !== 'decide') throw new TypeError('Use decide, models, policy, hook or feedback')
+    let prompt = args._.join(' ')
+    if (!prompt && !process.stdin.isTTY) prompt = (await readStdin()).trim()
+    if (!prompt && !context?.goal && !context?.taskType) throw new TypeError('Provide a prompt or a structured goal')
+    const r = maybeRecord(decide(prompt, options), args, 'cli')
+    if (args.shadow) {
+      if (r.recording.status === 'failed') throw new Error(r.recording.reason)
+      return writeExit(`[shadow] 已记录 routeId=${r.routeId}`)
+    }
+    writeExit(args.json ? JSON.stringify(r, null, 2) : formatReport(r))
+  } catch (error) {
+    if (cmd === 'hook') return writeExit('{}')
+    process.stderr.write(`[model-router] ${error.message}\n`, () => process.exit(1))
+  }
+}
+
+function isMain() {
+  try {
+    return process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+if (isMain()) await main()

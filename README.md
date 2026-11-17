@@ -6,7 +6,7 @@
 [![MCP Server](https://img.shields.io/badge/MCP-stdio-blueviolet)](mcp-server.mjs)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](install.sh)
 
-**[English README](README_EN.md)** · A zero-dependency prompt routing engine that embeds into coding agents (Kimi Code, Claude Code, Codex, Cursor and any MCP client). Give it a prompt — it returns a **task profile (typed questions with calibrated confidence), a recommended model, a recommended thinking effort, and ready-to-use API params**. Ships as a **CLI**, an **MCP stdio server**, and a **Claude Code UserPromptSubmit hook**. Inspired by TypeSafe Jev routing practice: confidence-gated escalation (uncertainty → route heavier), fail-open, and shadow mode for calibration. Built-in model libraries: Kimi (K3 / K2.8 Preview / K2.7 Code / K2.6) and Claude (Opus 4.6 / Sonnet 4.6 / Haiku 4.5). One-click installers for Windows, macOS and Linux.
+**[English README](README_EN.md)** · An offline, zero-dependency routing engine with CLI, MCP stdio and Claude Code Hook entry points.
 
 ---
 
@@ -16,8 +16,8 @@
 - 零依赖：Node ≥ 18 即可运行，无需 `npm install`、无需联网
 - 三种嵌入形态：**CLI** / **MCP server** / **Claude Code Hook**
 - 内置两套模型库：`kimi`（K3 / K2.8 Preview / K2.7 Code / K2.6）与 `claude`（Opus 4.6 / Sonnet 4.6 / Haiku 4.5）
-- 策略仿 TypeSafe Jev：类型化问题 + 校准置信度 + 门控上移 + 失败放行 + 影子模式
-- 端到端实测报告：[docs/integration-test.md](docs/integration-test.md)（CLI / MCP / Hook / Kimi Code 全通过）
+- 独立输出任务类型、复杂度、需求不明确程度与失败影响。按输入模态、上下文、工具和估算预算筛选候选
+- 支持本地反馈、固定基线和离线回放。[基线对比报告](docs/evaluation.md) · [集成验证](docs/integration-test.md)
 
 ## 快速开始
 
@@ -55,8 +55,8 @@ echo "证明根号 2 是无理数" | node router.mjs decide
 node router.mjs models --profile kimi
 node router.mjs policy
 
-# 影子模式：只记录到 ~/.agent-model-router/log.jsonl，不输出建议（校准用）
-node router.mjs decide "..." --shadow
+# 影子模式：写入本地反馈日志，stdout 只显示记录编号
+node router.mjs decide "提取记录编号" --shadow
 ```
 
 ## 嵌入 Claude Code（三种方式，可叠加）
@@ -82,9 +82,7 @@ node router.mjs decide "..." --shadow
 }
 ```
 
-效果：你每发一条消息，Claude Code 会自动在上下文里收到一条
-`[model-router] 任务=code(89%) 复杂度=64 → 推荐模型 Kimi K2.7 Code，思考强度 HIGH…`
-的注入，Claude 据此建议切换模型/档位。钩子失败时输出 `{}`，**绝不阻断对话**（fail-open）。
+Claude Code 会收到类似 `[model-router] 任务=code（未校准） 复杂度=42/100 → 推荐模型 …，思考建议 HIGH` 的上下文。无可用候选、无结构化上下文的短提示或异常输入返回 `{}`，对话可继续。默认关闭记录。给命令添加 `--record` 可取得 `routeId`。
 
 ### ② MCP server（Agent 主动调用 `route_prompt` 工具）
 
@@ -155,41 +153,96 @@ args = ["<path-to-repo>/agent-model-router/mcp-server.mjs"]
 
 不支持 MCP 的环境，直接用 CLI + `AGENTS.md` 引导即可（Agent 通过 Bash 调用）。
 
+## 结构化上下文
+
+纯提示词调用仍可使用。宿主可通过 CLI 的 `--context task.json`、MCP 的 `context` 或 Hook stdin JSON 的 `context` 提供如下信息。CLI 的提示词参数或 stdin 可以携带原始材料。MCP 的 `prompt` 也支持这一用法。
+
+```json
+{
+  "goal": "只从材料提取工单编号",
+  "taskType": "extract",
+  "inputTypes": ["document"],
+  "requiredTools": [],
+  "inputTokens": 45000,
+  "expectedOutputTokens": 200,
+  "failureImpact": "low",
+  "budget": { "maxEstimatedUsd": 0.1 }
+}
+```
+
+```bash
+node router.mjs decide --context task.json --json
+```
+
+| 字段 | 作用 |
+| --- | --- |
+| `goal`、`taskType` | 所有字段均可选。`goal` 单独提供任务指令。`taskType` 可直接声明类别，有效值为 `code`、`agentic`、`reasoning`、`writing`、`translate`、`analysis`、`extract`、`multimodal`、`chat`、`knowledge`。 |
+| `inputTypes` | `text`、`code`、`document`、`table`、`json`、`image`、`audio`、`video`。显式列表覆盖模态推断。多种媒体输入时，候选需支持全部声明模态。 |
+| `requiredTools` | 要求模型目录中的 `tools` 列表声明全部工具。目录自带的模型未声明宿主工具，使用硬工具约束时可通过 `--config` 指定目录。 |
+| `inputTokens`、`expectedOutputTokens` | 窗口要求以两者之和计算。缺少输入时估算当前可见文本。缺少预计输出时用输入的 1.6 倍作为窗口预留。未附长文材料时可由宿主补报输入大小。 |
+| `failureImpact` | `low`、`medium` 或 `high`。与任务复杂度独立。 |
+| `budget.maxEstimatedUsd` | 对目录标价乘以预计输入和输出 token 得到的估算费用设上限。使用预算时须填写 `expectedOutputTokens`，包括需计费的预计推理 token。实付费用需以执行记录为准。 |
+
+纯提示词下，规则识别否定、引文、Markdown 引用及围栏、材料标题和独立的 `---` 分隔线。将指令放在材料前，或直接传入独立的 `goal`。未知字段或无效参数会返回错误。预算缺少必要信息时，`policy.constraints.status` 为 `incomplete`，推荐为空。
+
 ## 输出契约（route_prompt / decide --json）
 
 ```jsonc
 {
-  "profile": {           // 任务画像（全部带置信度）
-    "taskType":  { "value": "code", "confidence": 0.89 },
-    "complexity": { "value": 64 },
-    "effort":    { "value": "high" },   // 推荐思考强度 low/high/max
-    "hold": false, "holdReasons": []     // 置信度门控
+  "policyVersion": "rules-v2.0.0",
+  "routeId": null,       // 启用记录且写入成功后为 UUID
+  "profile": {
+    "taskType": { "value": "code", "confidence": 0.88, "confidenceKind": "heuristic", "calibration": "uncalibrated" },
+    "complexity": { "value": 42, "kind": "heuristic", "calibration": "uncalibrated" },
+    "ambiguity": { "value": "low", "reasons": [], "missingFields": [] },
+    "failureImpact": { "value": "low" },
+    "stakes": "low",    // 兼容字段，镜像 failureImpact.value
+    "effort": { "value": "high" },
+    "hold": false,
+    "holdReasons": []
   },
   "recommendation": {
-    "model": "kimi-k2.7-code",
+    "model": "kimi-k2.6",
+    "score": 70,
+    "scoreKind": "heuristic",
+    "calibration": "uncalibrated",
     "effort": "high",
-    "apiParams": {},                     // 直接可用的调用参数
-    "thinkingNote": "该模型始终思考，档位不可调"
+    "apiParams": { "thinking": { "type": "enabled", "keep": "all" } },
+    "successProbability": { "value": null, "status": "uncalibrated" }
   },
-  "ranking": [ /* 全部候选 + 得分 + 理由 + 风险 */ ]
+  "ranking": [ /* 可行候选，首项为最终推荐 */ ],
+  "filteredOut": [ /* 排除的候选和原因 */ ],
+  "policy": { /* hold、holdReasons、gate、constraints */ }
 }
 ```
 
+分类 `confidence` 是兼容保留的启发式分值。宿主直接声明类型时标记为 `host_provided`。候选综合分用于排序，任务成功概率在缺少匹配的执行标签时为 `null`。多个动作竞争或输入信息缺失时，`profile.ambiguity` 提供原因和需补齐的字段。
+
+HOLD 将明确高失败影响的请求优先匹配旗舰档，将中等失败影响或明显不明确的请求优先匹配至少专业档。所有硬约束仍然生效。查看 `policy.gate.before`、`after`、`tierRaised`、`effortRaised` 和 `apiParamsChanged` 可区分模型档位、思考建议和实际调用参数的变化。门控优先级可能使首选的原始分值低于其他候选。
+
 ## 自定义模型库
 
-`router.config.json`（用 `--config` 指定）可切换默认模型库或整体替换模型：
+`router.config.json` 可切换默认模型库或整体替换模型。CLI、Hook 和 MCP server 均支持 `--config router.config.json`。
 
 ```json
 {
   "profile": "kimi",
   "preset": "balanced",
-  "models": [ { "id": "my-model", "name": "...", "tier": "pro", "caps": { "reasoning": 9, "coding": 9, "chinese": 9, "writing": 9, "agentic": 9 }, "modalities": { "image": true, "video": false }, "contextK": 256, "priceIn": 1, "priceOut": 4, "speedTps": 80, "openWeights": false, "thinking": "effort" } ]
+  "models": [ { "id": "my-model", "name": "...", "tier": "pro", "caps": { "reasoning": 9, "coding": 9, "chinese": 9, "writing": 9, "agentic": 9 }, "modalities": { "image": true, "video": false }, "tools": ["web"], "contextK": 256, "priceIn": 1, "priceOut": 4, "speedTps": 80, "openWeights": false, "thinking": "effort" } ]
 }
 ```
 
-## 设计原则（与 Jev 路由实践一致）
+## 本地反馈和离线回放
 
-1. **不确定就上移**：置信度 < 0.6 或前两类任务得分接近 → HOLD，推荐上移一档，思考强度 low→high。错配到弱模型损失质量，错配到强模型只多费 token。
-2. **失败放行**：路由工具的任何异常都不阻断 Agent 主流程。
-3. **先影子后启用**：`--shadow` 只记录不干预，日志是校准门限的依据。
-4. **档位会话内固定**：切档破坏前缀缓存。
+CLI 使用 `--record` 获取 `routeId`，或使用 `--shadow` 只记录影子建议。MCP 用 `route_prompt` 的 `record: true` 生成编号，再调用 `record_feedback`。反馈为本地 JSONL，默认路径是 `~/.agent-model-router/feedback.jsonl`，只记录选定元数据。反馈可记录采纳偏好或带判据的执行结果。文件字段、指标来源、路径和示例见 [反馈格式](docs/feedback.md)。
+
+```bash
+node router.mjs decide "提取订单号" --json --record
+node router.mjs feedback feedback-request.json
+npm test
+node eval/replay.mjs --split tuning
+node eval/replay.mjs --check --out replay-result.md
+node eval/replay.mjs --check --feedback ~/.agent-model-router/feedback.jsonl
+```
+
+[样例集](eval/cases.jsonl) 按语义组分配调参集和保留集。[冻结基线](eval/baseline.json) 可直接离线回放。完整 Git 历史可用 `npm run baseline -- --out rebuilt-baseline.json` 从固定提交复算。只有满足保留集验收的策略才应更新。合成标签用于回归，本地反馈供离线分析。实测结果另见 [评测报告](docs/evaluation.md)。
