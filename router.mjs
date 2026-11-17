@@ -384,7 +384,12 @@ async function main() {
     const args = parseArgs(argv)
     cmd = args._.shift() ?? 'decide'
     if (cmd === 'feedback') {
-      const feedback = args._[0] ? readJsonFile(args._[0], 'feedback file') : JSON.parse(await readStdin())
+      let feedback
+      try {
+        feedback = args._[0] ? readJsonFile(args._[0], 'feedback file') : JSON.parse(await readStdin())
+      } catch {
+        throw new TypeError('Unable to read valid feedback JSON')
+      }
       return writeExit(JSON.stringify(recordFeedback(feedback, args.log), null, 2))
     }
 

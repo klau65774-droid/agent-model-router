@@ -164,6 +164,15 @@ test('feedback rejects unknown routes, missing success criteria and malformed me
   assert.equal(readFeedbackLog(log).feedback.size, 0)
 }))
 
+test('feedback CLI keeps malformed input out of diagnostics', () => tempFiles(({ log }) => {
+  const sample = 'local-only-feedback-example'
+  const result = runNode(['router.mjs', 'feedback'], log, '{ "outcome": ' + sample)
+  assert.equal(result.status, 1)
+  assert.equal(result.stdout, '')
+  assert.equal(result.stderr.trim(), '[model-router] Unable to read valid feedback JSON')
+  assert.equal(existsSync(log), false)
+}))
+
 test('shadow mode records only the route ID on stdout and fails visibly if writing is impossible', () => tempFiles(({ dir, log }) => {
   const shadow = runNode(['router.mjs', 'decide', 'Translate this title.', '--shadow'], log)
   assert.equal(shadow.status, 0)
