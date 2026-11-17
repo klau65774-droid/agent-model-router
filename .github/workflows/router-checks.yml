@@ -1,0 +1,36 @@
+name: Router checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['18.20.8', '24.14.0']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm test
+      - run: node eval/replay.mjs --check
+      - run: node eval/capture-baseline.mjs --out baseline-rebuilt.json
+      - name: Compare regenerated baseline
+        run: >-
+          node -e 'const fs = require("node:fs");
+          const load = path => JSON.parse(fs.readFileSync(path, "utf8"));
+          require("node:assert/strict").deepEqual(load("baseline-rebuilt.json"), load("eval/baseline.json"));'
